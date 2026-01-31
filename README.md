@@ -30,13 +30,20 @@ python3 parse_excel.py
 
 #### 方法1：Windows一键更新（推荐）
 
-1. 双击运行 `一键更新数据.bat`
-2. 拖入新的Excel文件
-3. 按回车，等待完成
+**简易版（最简单）：**
+1. 把新Excel改名为 `线上建店审批.xlsx`
+2. 放到 `简易更新.bat` 同一目录
+3. 双击运行
+
+**完整版（灵活）：**
+1. 把新Excel放到 `一键更新数据.bat` 同一目录
+2. 双击运行，输入文件名
 
 **首次使用需安装：**
 - [Python](https://www.python.org/downloads/)
 - [Git for Windows](https://git-scm.com/download/win)
+
+**SSH密钥登录：** 查看 `SSH密钥配置.md`
 
 #### 方法2：服务器端更新
 
@@ -61,9 +68,10 @@ bash daily_update.sh 新审批数据.xlsx
 - `线上建店审批.xlsx` - 源Excel文件
 
 ### 脚本工具
+- `简易更新.bat` - Windows简易更新（固定文件名）⭐推荐
+- `一键更新数据.bat` - Windows灵活更新（任意文件名）
 - `检测并配置nginx.sh` - 智能检测并配置nginx多项目
 - `daily_update.sh` - 服务器端数据更新脚本
-- `一键更新数据.bat` - Windows一键更新工具
 - `修复数据加载.sh` - 数据加载问题修复
 - `服务器部署.sh` - 快速部署脚本
 

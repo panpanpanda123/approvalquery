@@ -1,13 +1,15 @@
 @echo off
 chcp 65001 >nul
+setlocal enabledelayedexpansion
+
 echo ========================================
 echo 📤 审批数据一键更新工具
 echo ========================================
 echo.
 echo 💡 使用说明:
-echo    1. 把新下载的Excel文件拖到这个窗口
-echo    2. 按回车键
-echo    3. 等待上传完成
+echo    1. 把新下载的Excel文件放到这个bat文件同一目录
+echo    2. 双击运行这个bat文件
+echo    3. 输入Excel文件名
 echo.
 echo ========================================
 echo.
@@ -31,24 +33,38 @@ if errorlevel 1 (
     echo.
 )
 
-REM 获取Excel文件路径
-set /p EXCEL_FILE="📁 请拖入新的Excel文件，然后按回车: "
+pip show pandas >nul 2>&1
+if errorlevel 1 (
+    echo 📦 正在安装依赖 pandas...
+    pip install pandas
+    echo.
+)
 
-REM 去除引号
-set EXCEL_FILE=%EXCEL_FILE:"=%
+REM 列出当前目录的Excel文件
+echo 📁 当前目录的Excel文件:
+echo.
+dir /b *.xlsx 2>nul
+if errorlevel 1 (
+    echo    (没有找到Excel文件)
+)
+echo.
+
+REM 获取Excel文件名
+set /p EXCEL_FILE="请输入Excel文件名 (例如: 线上建店审批.xlsx): "
 
 REM 检查文件是否存在
 if not exist "%EXCEL_FILE%" (
     echo.
     echo ❌ 错误: 文件不存在
     echo.
+    echo � 请确保Excel文件在当前目录下
     pause
     exit /b 1
 )
 
 echo.
 echo ========================================
-echo 📊 步骤 1/3: 解析Excel数据
+echo � 步骤 1/2: 解析Exc=el数据
 echo ========================================
 echo.
 
@@ -63,15 +79,15 @@ if errorlevel 1 (
 
 echo.
 echo ========================================
-echo 📤 步骤 2/3: 上传到服务器
+echo 📤 步骤 2/2: 上传到服务器
 echo ========================================
 echo.
 
-REM 提示输入服务器信息（首次使用）
+REM 读取或创建配置
 if not exist "server_config.txt" (
     echo 💡 首次使用需要配置服务器信息
     echo.
-    set /p SERVER_IP="请输入服务器IP地址: "
+    set /p SERVER_IP="请输入服务器IP地址 (例如: 139.224.200.133): "
     set /p SERVER_USER="请输入服务器用户名 (默认root): "
     if "!SERVER_USER!"=="" set SERVER_USER=root
     
@@ -99,37 +115,49 @@ where scp >nul 2>&1
 if errorlevel 1 (
     echo ❌ 错误: 未找到scp命令
     echo.
-    echo 💡 请安装以下工具之一:
-    echo    - Git for Windows (推荐): https://git-scm.com/download/win
-    echo    - OpenSSH: 在Windows设置中启用
+    echo 💡 请安装 Git for Windows: https://git-scm.com/download/win
+    echo    安装后重启电脑
     echo.
     pause
     exit /b 1
 )
 
-REM 上传文件
+REM 上传文件（支持密钥登录）
 echo 🚀 正在上传...
-scp approval_data.json %SERVER_USER%@%SERVER_IP%:/var/www/approval-viewer/
+echo.
+echo 💡 如果使用SSH密钥登录，直接按回车
+echo    如果使用密码登录，输入密码后按回车
+echo.
+
+scp approval_data.json %SERVER_USER%@%SERVER_IP%:/var/www/approval-viewer/approvalquery/
 if errorlevel 1 (
     echo.
-    echo ❌ 上传失败，请检查:
-    echo    1. 服务器IP地址是否正确
-    echo    2. 是否能SSH连接到服务器
-    echo    3. 服务器路径是否正确
+    echo ❌ 上传失败
     echo.
-    echo 💡 如需修改配置，请删除 server_config.txt 后重新运行
+    echo 💡 可能的原因:
+    echo    1. 服务器IP地址不对 (当前: %SERVER_IP%)
+    echo    2. SSH密钥未配置或密码错误
+    echo    3. 服务器路径不存在
+    echo.
+    echo 💡 修改配置: 删除 server_config.txt 后重新运行
+    echo.
+    echo 💡 测试SSH连接:
+    echo    ssh %SERVER_USER%@%SERVER_IP%
+    echo.
     pause
     exit /b 1
 )
 
 echo.
 echo ========================================
-echo ✅ 步骤 3/3: 完成！
+echo ✅ 完成！
 echo ========================================
 echo.
 echo 🎉 数据更新成功！
 echo.
-echo 🌐 访问地址: http://blitzepanda.top/approvalquery
+echo 🌐 访问地址: 
+echo    http://blitzepanda.top/approvalquery
+echo    http://%SERVER_IP%/approvalquery
 echo.
 echo 💡 提示: 按 Ctrl+F5 强制刷新浏览器查看最新数据
 echo.
