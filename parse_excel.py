@@ -209,4 +209,14 @@ def parse_excel_to_json(excel_path, output_path):
     print(f'\n数据已保存到: {output_path}')
 
 if __name__ == '__main__':
-    parse_excel_to_json('线上建店审批.xlsx', 'approval_data.json')
+    import sys
+    
+    # 支持命令行参数
+    if len(sys.argv) > 1:
+        excel_file = sys.argv[1]
+        output_file = sys.argv[2] if len(sys.argv) > 2 else 'approval_data.json'
+    else:
+        excel_file = '线上建店审批.xlsx'
+        output_file = 'approval_data.json'
+    
+    parse_excel_to_json(excel_file, output_file)
