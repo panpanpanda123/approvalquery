@@ -1,51 +1,140 @@
-# 审批进度可视化系统
+# 线上建店审批进度可视化
 
-企微审批数据可视化工具，支持9项关键审批追踪。
+企业微信审批数据可视化系统，用于展示门店审批进度。
 
-## 快速开始
+## 🚀 快速开始
 
-### 1. 安装依赖
+### 服务器部署
+
+1. **首次部署**
 ```bash
-pip install -r requirements.txt
+# 克隆项目
+git clone <your-repo-url>
+cd approval-viewer
+
+# 安装依赖
+pip3 install -r requirements.txt
+
+# 配置nginx
+bash 配置nginx多项目.sh
+
+# 生成数据
+python3 parse_excel.py
 ```
 
-### 2. 生成数据
+2. **访问地址**
+- http://blitzepanda.top/approvalquery/
+- http://139.224.200.133/approvalquery/
+
+### 更新数据
+
+#### 方法1：Windows一键更新（推荐）
+
+1. 双击运行 `一键更新数据.bat`
+2. 拖入新的Excel文件
+3. 按回车，等待完成
+
+**首次使用需安装：**
+- [Python](https://www.python.org/downloads/)
+- [Git for Windows](https://git-scm.com/download/win)
+
+#### 方法2：服务器端更新
+
 ```bash
-python parse_excel.py
+# 上传Excel到服务器
+scp 新审批数据.xlsx root@服务器IP:/var/www/approval-viewer/approvalquery/
+
+# SSH登录服务器
+ssh root@服务器IP
+
+# 运行更新脚本
+cd /var/www/approval-viewer/approvalquery
+bash daily_update.sh 新审批数据.xlsx
 ```
 
-### 3. 启动服务器
+## 📁 文件说明
+
+### 核心文件
+- `index.html` - 前端页面
+- `parse_excel.py` - Excel数据解析脚本
+- `approval_data.json` - 生成的JSON数据
+- `线上建店审批.xlsx` - 源Excel文件
+
+### 脚本工具
+- `检测并配置nginx.sh` - 智能检测并配置nginx多项目
+- `daily_update.sh` - 服务器端数据更新脚本
+- `一键更新数据.bat` - Windows一键更新工具
+- `修复数据加载.sh` - 数据加载问题修复
+- `服务器部署.sh` - 快速部署脚本
+
+### 配置文件
+- `requirements.txt` - Python依赖
+- `.gitignore` - Git忽略规则
+
+## 🔧 nginx多项目管理
+
+智能检测并配置所有项目：
+
 ```bash
-python deploy_server.py
+bash 检测并配置nginx.sh
 ```
 
-访问: http://localhost:8080
+这个脚本会：
+- 自动搜索 /var/www, /opt, /home 目录
+- 检测所有项目（approvalquery, kart, wuliu, weeklycheck）
+- 生成统一的nginx配置
+- 支持域名和IP访问
+- 自动备份旧配置
 
-## 更新数据
+## 🛠️ 故障排查
+
+### 数据加载失败
 
 ```bash
-python update_excel.py 新文件.xlsx
+cd /var/www/approval-viewer/approvalquery
+python3 parse_excel.py
+chmod 644 approval_data.json
 ```
 
-## 功能特点
+### nginx配置问题
 
-- ✅ 9项关键审批追踪
-- ✅ 3x3网格可视化
-- ✅ 审批时间显示
-- ✅ 点击卡片筛选
-- ✅ 搜索和筛选
-- ✅ 响应式设计
+```bash
+# 测试配置
+sudo nginx -t
 
-## 项目结构
+# 重启nginx
+sudo systemctl reload nginx
 
-```
-temp_view/
-├── index.html           # 前端页面
-├── parse_excel.py       # 数据解析
-├── deploy_server.py     # 生产服务器
-├── update_excel.py      # 数据更新
-├── requirements.txt     # 依赖
-└── README.md           # 本文件
+# 查看错误日志
+sudo tail -50 /var/log/nginx/error.log
 ```
 
-详细部署说明见 [README_DEPLOY.md](README_DEPLOY.md)
+### 权限问题
+
+```bash
+cd /var/www/approval-viewer/approvalquery
+sudo chown -R www-data:www-data .
+sudo chmod 644 *.json *.html
+```
+
+## 📊 数据格式
+
+系统从企业微信审批导出的Excel文件中解析以下信息：
+- 审批状态（已通过/审批中/已驳回/已撤销）
+- 门店基本信息（名称、编号、城市、加盟商）
+- 审批流程（9个关键审批节点）
+- 关键节点完成情况（合同、装修、培训等）
+
+## 🔄 更新日志
+
+- 2026-01-31: 初始版本，支持审批进度可视化
+- 支持多项目nginx配置管理
+- 添加Windows一键更新工具
+
+## 📞 技术支持
+
+遇到问题请检查：
+1. 文件权限是否正确
+2. nginx配置是否生效
+3. Python依赖是否安装
+4. 浏览器控制台错误信息

@@ -1,7 +1,21 @@
-*.log
+# Python
 *.pyc
 __pycache__/
+*.log
+
+# 系统文件
 .DS_Store
+Thumbs.db
+
+# 备份文件
 *_backup_*.xlsx
+*.bak
+
+# 临时文件
+*.tmp
+*.swp
 server.log
-.git/
+
+# 数据文件（可选：如果不想提交数据）
+# approval_data.json
+# 线上建店审批.xlsx
