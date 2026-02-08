@@ -1,24 +1,38 @@
 """
-解析企微审批Excel文件，生成JSON数据供前端展示
+解析Excel文件，生成JSON数据供前端展示
+支持两种格式：
+1. 企微审批导出格式（线上建店审批.xlsx）
+2. 建店进度格式（线上建店进度.xlsx）
 """
 import pandas as pd
 import json
 from datetime import datetime
 import re
+import sys
+
+def detect_excel_format(df):
+    """
+    检测Excel格式类型
+    返回: 'approval' 或 'progress'
+    """
+    columns = set(df.columns)
+    
+    # 审批格式的特征列
+    approval_columns = {'审批单编号', '门店编码', '门店名称', '当前审批状态', '审批流程'}
+    # 进度格式的特征列
+    progress_columns = {'门店号', '店铺名称', '建店单', '资料包'}
+    
+    if approval_columns.issubset(columns):
+        return 'approval'
+    elif progress_columns.issubset(columns):
+        return 'progress'
+    else:
+        # 默认尝试审批格式
+        return 'approval'
 
 def parse_approval_flow(flow_text, status):
     """
     解析审批流程文本，提取关键审批节点
-    
-    只关注9个关键审批节点（忽略抄送）：
-    1. 财务部（贺龙娇/诸静逸/谢珍珍/杨文慧）- 2项审批
-    2. 施工监理-范钟欣 - 装修审核
-    3. 王伟清 - 培训部
-    4. 刘崇宇 - 视频监控
-    5. 蔡文佳 - 线下运营
-    6. 线下堂食助理-婷婷 - 信息收集
-    7. 单玮 - 督导部
-    8. 苏磊 - 最终审批
     """
     if pd.isna(flow_text):
         return [], []
@@ -36,30 +50,27 @@ def parse_approval_flow(flow_text, status):
         '最终审批': {'names': ['苏磊'], 'label': '最终审批', 'completed': False, 'time': None}
     }
     
-    lines = flow_text.split('\n')
+    lines = str(flow_text).split('\n')
     
-    # 解析审批流程，只关注"已同意"和"审批中"
+    # 解析审批流程
     for line in lines:
         line = line.strip()
         if not line:
             continue
         
-        # 只匹配"已同意"和"审批中"，忽略"已抄送"
         if '已同意' not in line and '审批中' not in line:
             continue
             
-        # 检查是否是关键审批人
         for key, info in key_approvers.items():
             for name in info['names']:
                 if name in line and '已同意' in line:
                     info['completed'] = True
-                    # 提取时间：格式如 "1/23 20:21"
                     time_match = re.search(r'(\d{1,2}/\d{1,2}\s+\d{1,2}:\d{2})', line)
                     if time_match:
                         info['time'] = time_match.group(1)
                     break
     
-    # 构建已完成和待审批节点列表
+    # 构建节点列表
     completed_nodes = []
     pending_nodes = []
     
@@ -75,7 +86,7 @@ def parse_approval_flow(flow_text, status):
             'label': info['label'],
             'approver': ' / '.join(info['names']),
             'completed': info['completed'],
-            'time': info['time']  # 添加时间字段
+            'time': info['time']
         }
         
         if info['completed']:
@@ -85,11 +96,8 @@ def parse_approval_flow(flow_text, status):
     
     return completed_nodes, pending_nodes
 
-def parse_excel_to_json(excel_path, output_path):
-    """解析Excel文件并生成JSON"""
-    df = pd.read_excel(excel_path)
-    
-    # 处理每个门店
+def parse_approval_format(df):
+    """解析审批格式的Excel"""
     stores = []
     approved_count = 0
     rejected_count = 0
@@ -97,33 +105,30 @@ def parse_excel_to_json(excel_path, output_path):
     withdrawn_count = 0
     
     for idx, row in df.iterrows():
-        current_status = row['当前审批状态'] if pd.notna(row['当前审批状态']) else ''
+        current_status = row.get('当前审批状态', '')
+        if pd.isna(current_status):
+            current_status = ''
         
         # 解析审批流程
         completed_nodes, pending_nodes = parse_approval_flow(row.get('审批流程', ''), current_status)
         all_nodes = completed_nodes + pending_nodes
         
-        # 检查苏磊是否已审批 - 如果苏磊已同意，标记为已通过
+        # 检查最终审批
         sulei_approved = any(node['key'] == '最终审批' and node['completed'] for node in all_nodes)
-        
-        # 更新状态：如果苏磊已审批，强制标记为已通过
         if sulei_approved and current_status == '审批中':
             current_status = '已通过'
         
-        # 计算审批进度
+        # 计算进度
         total_nodes = len(all_nodes)
         completed_count = len(completed_nodes)
         progress_percentage = (completed_count / total_nodes * 100) if total_nodes > 0 else 0
         
-        # 计算审批耗时（天数）
+        # 计算耗时
         duration_days = None
         if pd.notna(row.get('提交时间')) and pd.notna(row.get('完成时间')):
             try:
-                # 解析中文日期格式：2026年1月8日 10:16
                 submit_str = str(row['提交时间'])
                 complete_str = str(row['完成时间'])
-                
-                # 提取日期部分
                 submit_match = re.search(r'(\d{4})年(\d{1,2})月(\d{1,2})日', submit_str)
                 complete_match = re.search(r'(\d{4})年(\d{1,2})月(\d{1,2})日', complete_str)
                 
@@ -131,11 +136,10 @@ def parse_excel_to_json(excel_path, output_path):
                     submit_date = datetime(int(submit_match.group(1)), int(submit_match.group(2)), int(submit_match.group(3)))
                     complete_date = datetime(int(complete_match.group(1)), int(complete_match.group(2)), int(complete_match.group(3)))
                     duration_days = (complete_date - submit_date).days
-            except Exception as e:
-                print(f"解析日期失败: {e}")
+            except:
                 pass
         
-        # 统计各状态数量
+        # 统计
         if current_status == '已通过':
             approved_count += 1
         elif current_status == '已驳回':
@@ -146,30 +150,26 @@ def parse_excel_to_json(excel_path, output_path):
             withdrawn_count += 1
         
         store = {
-            'id': int(row['审批单编号']),
-            'store_code': int(row['门店编码']) if pd.notna(row['门店编码']) else None,
-            'store_name': row['门店名称'] if pd.notna(row['门店名称']) else '',
-            'city': row['门店所在城市'] if pd.notna(row['门店所在城市']) else '',
-            'franchisee': row['加盟商'] if pd.notna(row['加盟商']) else '',
-            'opening_date': row['建店时间'] if pd.notna(row['建店时间']) else '',
-            'submit_time': row['提交时间'] if pd.notna(row['提交时间']) else '',
-            'complete_time': row['完成时间'] if pd.notna(row['完成时间']) else '',
+            'id': int(row.get('审批单编号', idx)),
+            'store_code': int(row['门店编码']) if pd.notna(row.get('门店编码')) else None,
+            'store_name': row.get('门店名称', ''),
+            'city': row.get('门店所在城市', ''),
+            'franchisee': row.get('加盟商', ''),
+            'opening_date': row.get('建店时间', ''),
+            'submit_time': row.get('提交时间', ''),
+            'complete_time': row.get('完成时间', ''),
             'status': current_status,
-            'original_status': row['当前审批状态'] if pd.notna(row['当前审批状态']) else '',
-            'applicant': row['申请人'] if pd.notna(row['申请人']) else '',
-            'department': row['申请人部门'] if pd.notna(row['申请人部门']) else '',
+            'original_status': row.get('当前审批状态', ''),
+            'applicant': row.get('申请人', ''),
+            'department': row.get('申请人部门', ''),
             'duration_days': duration_days,
-            
-            # 关键节点状态
-            'contract_signed': row['合同签订'] if pd.notna(row['合同签订']) else '',
-            'decoration': row['装修'] if pd.notna(row['装修']) else '',
-            'training': row['开业培训（理论&实操）'] if pd.notna(row['开业培训（理论&实操）']) else '',
-            'equipment': row['设备采购'] if pd.notna(row['设备采购']) else '',
-            'license': row['营业执照'] if pd.notna(row['营业执照']) else '',
-            'food_permit': row['食品经营许可证'] if pd.notna(row['食品经营许可证']) else '',
-            'trial_operation': row['试营业3天'] if pd.notna(row['试营业3天']) else '',
-            
-            # 审批流程节点
+            'contract_signed': row.get('合同签订', ''),
+            'decoration': row.get('装修', ''),
+            'training': row.get('开业培训（理论&实操）', ''),
+            'equipment': row.get('设备采购', ''),
+            'license': row.get('营业执照', ''),
+            'food_permit': row.get('食品经营许可证', ''),
+            'trial_operation': row.get('试营业3天', ''),
             'approval_nodes': all_nodes,
             'completed_nodes': completed_nodes,
             'pending_nodes': pending_nodes,
@@ -180,7 +180,6 @@ def parse_excel_to_json(excel_path, output_path):
         
         stores.append(store)
     
-    # 生成统计数据
     stats = {
         'total': len(df),
         'approved': approved_count,
@@ -189,28 +188,157 @@ def parse_excel_to_json(excel_path, output_path):
         'withdrawn': withdrawn_count
     }
     
+    return stores, stats
+
+def parse_progress_format(df):
+    """解析进度格式的Excel"""
+    stores = []
+    approved_count = 0
+    in_progress_count = 0
+    
+    for idx, row in df.iterrows():
+        # 从建店单和资料包状态判断进度
+        jiandian_status = str(row.get('建店单', '')).strip()
+        ziliao_status = str(row.get('资料包', '')).strip()
+        approval_status = row.get('当前审批状态', '')
+        
+        # 判断状态
+        if pd.notna(approval_status) and approval_status:
+            current_status = str(approval_status)
+        elif jiandian_status == '已提交' and ziliao_status == '已收集':
+            current_status = '审批中'
+        elif jiandian_status == '已提交':
+            current_status = '审批中'
+        else:
+            current_status = '准备中'
+        
+        # 解析审批流程（如果有）
+        completed_nodes, pending_nodes = parse_approval_flow(row.get('审批流程', ''), current_status)
+        all_nodes = completed_nodes + pending_nodes
+        
+        # 如果没有审批流程，根据状态创建简单节点
+        if not all_nodes:
+            if jiandian_status == '已提交':
+                completed_nodes.append({
+                    'key': '建店单',
+                    'label': '建店单提交',
+                    'approver': '运营',
+                    'completed': True,
+                    'time': None
+                })
+            if ziliao_status == '已收集':
+                completed_nodes.append({
+                    'key': '资料包',
+                    'label': '资料包收集',
+                    'approver': '运营',
+                    'completed': True,
+                    'time': None
+                })
+            all_nodes = completed_nodes + pending_nodes
+        
+        # 计算进度
+        total_nodes = max(len(all_nodes), 2)  # 至少2个节点
+        completed_count = len(completed_nodes)
+        progress_percentage = (completed_count / total_nodes * 100) if total_nodes > 0 else 0
+        
+        # 统计
+        if current_status == '已通过':
+            approved_count += 1
+        else:
+            in_progress_count += 1
+        
+        # 处理日期（Excel日期格式）
+        opening_date = ''
+        if pd.notna(row.get('预计开业')):
+            try:
+                # 尝试转换Excel日期数字
+                date_val = row['预计开业']
+                if isinstance(date_val, (int, float)):
+                    # Excel日期从1900-01-01开始
+                    base_date = datetime(1899, 12, 30)
+                    opening_date = (base_date + pd.Timedelta(days=int(date_val))).strftime('%Y-%m-%d')
+                else:
+                    opening_date = str(date_val)
+            except:
+                opening_date = str(row.get('预计开业', ''))
+        
+        store = {
+            'id': int(row.get('门店号', idx)),
+            'store_code': int(row['门店号']) if pd.notna(row.get('门店号')) else None,
+            'store_name': row.get('店铺名称', ''),
+            'city': row.get('省份', ''),
+            'franchisee': row.get('运营', ''),
+            'opening_date': opening_date,
+            'submit_time': '',
+            'complete_time': '',
+            'status': current_status,
+            'original_status': current_status,
+            'applicant': row.get('运营', ''),
+            'department': row.get('战区', ''),
+            'duration_days': None,
+            'contract_signed': jiandian_status,
+            'decoration': '',
+            'training': '',
+            'equipment': '',
+            'license': '',
+            'food_permit': '',
+            'trial_operation': ziliao_status,
+            'approval_nodes': all_nodes,
+            'completed_nodes': completed_nodes,
+            'pending_nodes': pending_nodes,
+            'approval_count': total_nodes,
+            'completed_count': completed_count,
+            'progress_percentage': round(progress_percentage, 1)
+        }
+        
+        stores.append(store)
+    
+    stats = {
+        'total': len(df),
+        'approved': approved_count,
+        'rejected': 0,
+        'in_progress': in_progress_count,
+        'withdrawn': 0
+    }
+    
+    return stores, stats
+
+def parse_excel_to_json(excel_path, output_path='approval_data.json'):
+    """解析Excel文件并生成JSON"""
+    print(f'📖 读取文件: {excel_path}')
+    df = pd.read_excel(excel_path)
+    
+    # 检测格式
+    format_type = detect_excel_format(df)
+    print(f'📋 检测到格式: {"审批格式" if format_type == "approval" else "进度格式"}')
+    
+    # 根据格式解析
+    if format_type == 'approval':
+        stores, stats = parse_approval_format(df)
+    else:
+        stores, stats = parse_progress_format(df)
+    
     # 生成输出数据
     output_data = {
         'stats': stats,
         'stores': stores,
-        'generated_at': datetime.now().isoformat()
+        'generated_at': datetime.now().isoformat(),
+        'source_format': format_type
     }
     
     # 写入JSON文件
     with open(output_path, 'w', encoding='utf-8') as f:
         json.dump(output_data, f, ensure_ascii=False, indent=2)
     
-    print(f'✅ 数据解析完成！')
-    print(f'总计: {stats["total"]} 个审批')
+    print(f'\n✅ 数据解析完成！')
+    print(f'总计: {stats["total"]} 个门店')
     print(f'已通过: {stats["approved"]} 个')
     print(f'审批中: {stats["in_progress"]} 个')
     print(f'已驳回: {stats["rejected"]} 个')
     print(f'已撤销: {stats["withdrawn"]} 个')
-    print(f'\n数据已保存到: {output_path}')
+    print(f'\n💾 数据已保存到: {output_path}')
 
 if __name__ == '__main__':
-    import sys
-    
     # 支持命令行参数
     if len(sys.argv) > 1:
         excel_file = sys.argv[1]
@@ -219,4 +347,10 @@ if __name__ == '__main__':
         excel_file = '线上建店审批.xlsx'
         output_file = 'approval_data.json'
     
-    parse_excel_to_json(excel_file, output_file)
+    try:
+        parse_excel_to_json(excel_file, output_file)
+    except Exception as e:
+        print(f'\n❌ 错误: {e}')
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
