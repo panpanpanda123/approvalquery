@@ -96,6 +96,17 @@ def parse_approval_flow(flow_text, status):
     
     return completed_nodes, pending_nodes
 
+def clean_value(value):
+    """清理数据值，处理NaN和None"""
+    if pd.isna(value):
+        return ''
+    if isinstance(value, float):
+        if value != value:  # NaN检查
+            return ''
+        if value == float('inf') or value == float('-inf'):
+            return ''
+    return value
+
 def parse_approval_format(df):
     """解析审批格式的Excel"""
     stores = []
@@ -152,24 +163,24 @@ def parse_approval_format(df):
         store = {
             'id': int(row.get('审批单编号', idx)),
             'store_code': int(row['门店编码']) if pd.notna(row.get('门店编码')) else None,
-            'store_name': row.get('门店名称', ''),
-            'city': row.get('门店所在城市', ''),
-            'franchisee': row.get('加盟商', ''),
-            'opening_date': row.get('建店时间', ''),
-            'submit_time': row.get('提交时间', ''),
-            'complete_time': row.get('完成时间', ''),
+            'store_name': clean_value(row.get('门店名称', '')),
+            'city': clean_value(row.get('门店所在城市', '')),
+            'franchisee': clean_value(row.get('加盟商', '')),
+            'opening_date': clean_value(row.get('建店时间', '')),
+            'submit_time': clean_value(row.get('提交时间', '')),
+            'complete_time': clean_value(row.get('完成时间', '')),
             'status': current_status,
-            'original_status': row.get('当前审批状态', ''),
-            'applicant': row.get('申请人', ''),
-            'department': row.get('申请人部门', ''),
+            'original_status': clean_value(row.get('当前审批状态', '')),
+            'applicant': clean_value(row.get('申请人', '')),
+            'department': clean_value(row.get('申请人部门', '')),
             'duration_days': duration_days,
-            'contract_signed': row.get('合同签订', ''),
-            'decoration': row.get('装修', ''),
-            'training': row.get('开业培训（理论&实操）', ''),
-            'equipment': row.get('设备采购', ''),
-            'license': row.get('营业执照', ''),
-            'food_permit': row.get('食品经营许可证', ''),
-            'trial_operation': row.get('试营业3天', ''),
+            'contract_signed': clean_value(row.get('合同签订', '')),
+            'decoration': clean_value(row.get('装修', '')),
+            'training': clean_value(row.get('开业培训（理论&实操）', '')),
+            'equipment': clean_value(row.get('设备采购', '')),
+            'license': clean_value(row.get('营业执照', '')),
+            'food_permit': clean_value(row.get('食品经营许可证', '')),
+            'trial_operation': clean_value(row.get('试营业3天', '')),
             'approval_nodes': all_nodes,
             'completed_nodes': completed_nodes,
             'pending_nodes': pending_nodes,
@@ -265,24 +276,24 @@ def parse_progress_format(df):
         store = {
             'id': int(row.get('门店号', idx)),
             'store_code': int(row['门店号']) if pd.notna(row.get('门店号')) else None,
-            'store_name': row.get('店铺名称', ''),
-            'city': row.get('省份', ''),
-            'franchisee': row.get('运营', ''),
+            'store_name': clean_value(row.get('店铺名称', '')),
+            'city': clean_value(row.get('省份', '')),
+            'franchisee': clean_value(row.get('运营', '')),
             'opening_date': opening_date,
             'submit_time': '',
             'complete_time': '',
             'status': current_status,
             'original_status': current_status,
-            'applicant': row.get('运营', ''),
-            'department': row.get('战区', ''),
+            'applicant': clean_value(row.get('运营', '')),
+            'department': clean_value(row.get('战区', '')),
             'duration_days': None,
-            'contract_signed': jiandian_status,
+            'contract_signed': clean_value(jiandian_status),
             'decoration': '',
             'training': '',
             'equipment': '',
             'license': '',
             'food_permit': '',
-            'trial_operation': ziliao_status,
+            'trial_operation': clean_value(ziliao_status),
             'approval_nodes': all_nodes,
             'completed_nodes': completed_nodes,
             'pending_nodes': pending_nodes,
@@ -326,9 +337,9 @@ def parse_excel_to_json(excel_path, output_path='approval_data.json'):
         'source_format': format_type
     }
     
-    # 写入JSON文件
+    # 写入JSON文件（处理NaN值）
     with open(output_path, 'w', encoding='utf-8') as f:
-        json.dump(output_data, f, ensure_ascii=False, indent=2)
+        json.dump(output_data, f, ensure_ascii=False, indent=2, allow_nan=False)
     
     print(f'\n✅ 数据解析完成！')
     print(f'总计: {stats["total"]} 个门店')
