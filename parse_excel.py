@@ -9,6 +9,7 @@ import json
 from datetime import datetime
 import re
 import sys
+import os
 
 def detect_excel_format(df):
     """
@@ -30,25 +31,64 @@ def detect_excel_format(df):
         # 默认尝试审批格式
         return 'approval'
 
-def parse_approval_flow(flow_text, status):
+def load_approver_config():
+    """
+    从配置文件加载审批人员配置
+    如果配置文件不存在，使用默认配置
+    """
+    config_file = 'approver_config.json'
+    
+    # 默认配置
+    default_config = {
+        '财务部-1': {'names': ['李婕'], 'label': '财务审批-1'},
+        '财务部-2': {'names': ['谢珍珍', '杨文慧'], 'label': '财务审批-2'},
+        '装修审核': {'names': ['施工监理-范钟欣', '范钟欣'], 'label': '装修审核'},
+        '培训部': {'names': ['王伟清'], 'label': '培训审批'},
+        '视频监控': {'names': ['刘崇宇'], 'label': '视频监控'},
+        '线下运营': {'names': ['蔡文佳'], 'label': '线下运营'},
+        '信息收集': {'names': ['线下堂食助理-婷婷', '婷婷'], 'label': '信息收集'},
+        '督导部': {'names': ['单玮'], 'label': '督导审批'},
+        '最终审批': {'names': ['苏磊'], 'label': '最终审批'}
+    }
+    
+    # 尝试加载配置文件
+    if os.path.exists(config_file):
+        try:
+            with open(config_file, 'r', encoding='utf-8') as f:
+                config_data = json.load(f)
+                config = {}
+                for key, value in config_data.get('审批节点配置', {}).items():
+                    config[key] = {
+                        'names': value['names'],
+                        'label': value['label']
+                    }
+                print(f'✅ 已加载审批人员配置: {config_file}')
+                return config
+        except Exception as e:
+            print(f'⚠️  配置文件加载失败，使用默认配置: {e}')
+    
+    return default_config
+
+def parse_approval_flow(flow_text, status, approver_config=None):
     """
     解析审批流程文本，提取关键审批节点
     """
     if pd.isna(flow_text):
         return [], []
     
-    # 定义9个关键审批节点
-    key_approvers = {
-        '财务部-1': {'names': ['贺龙娇', '诸静逸'], 'label': '财务审批-1', 'completed': False, 'time': None},
-        '财务部-2': {'names': ['谢珍珍', '杨文慧'], 'label': '财务审批-2', 'completed': False, 'time': None},
-        '装修审核': {'names': ['施工监理-范钟欣', '范钟欣'], 'label': '装修审核', 'completed': False, 'time': None},
-        '培训部': {'names': ['王伟清'], 'label': '培训审批', 'completed': False, 'time': None},
-        '视频监控': {'names': ['刘崇宇'], 'label': '视频监控', 'completed': False, 'time': None},
-        '线下运营': {'names': ['蔡文佳'], 'label': '线下运营', 'completed': False, 'time': None},
-        '信息收集': {'names': ['线下堂食助理-婷婷', '婷婷'], 'label': '信息收集', 'completed': False, 'time': None},
-        '督导部': {'names': ['单玮'], 'label': '督导审批', 'completed': False, 'time': None},
-        '最终审批': {'names': ['苏磊'], 'label': '最终审批', 'completed': False, 'time': None}
-    }
+    # 如果没有传入配置，则加载配置
+    if approver_config is None:
+        approver_config = load_approver_config()
+    
+    # 初始化审批节点
+    key_approvers = {}
+    for key, config in approver_config.items():
+        key_approvers[key] = {
+            'names': config['names'],
+            'label': config['label'],
+            'completed': False,
+            'time': None
+        }
     
     lines = str(flow_text).split('\n')
     
@@ -109,6 +149,9 @@ def clean_value(value):
 
 def parse_approval_format(df):
     """解析审批格式的Excel"""
+    # 预加载审批人员配置（只加载一次）
+    approver_config = load_approver_config()
+    
     stores = []
     approved_count = 0
     rejected_count = 0
@@ -120,8 +163,12 @@ def parse_approval_format(df):
         if pd.isna(current_status):
             current_status = ''
         
-        # 解析审批流程
-        completed_nodes, pending_nodes = parse_approval_flow(row.get('审批流程', ''), current_status)
+        # 解析审批流程（传入配置）
+        completed_nodes, pending_nodes = parse_approval_flow(
+            row.get('审批流程', ''), 
+            current_status,
+            approver_config
+        )
         all_nodes = completed_nodes + pending_nodes
         
         # 检查最终审批
@@ -203,6 +250,9 @@ def parse_approval_format(df):
 
 def parse_progress_format(df):
     """解析进度格式的Excel"""
+    # 预加载审批人员配置（只加载一次）
+    approver_config = load_approver_config()
+    
     stores = []
     approved_count = 0
     in_progress_count = 0
@@ -223,8 +273,12 @@ def parse_progress_format(df):
         else:
             current_status = '准备中'
         
-        # 解析审批流程（如果有）
-        completed_nodes, pending_nodes = parse_approval_flow(row.get('审批流程', ''), current_status)
+        # 解析审批流程（如果有，传入配置）
+        completed_nodes, pending_nodes = parse_approval_flow(
+            row.get('审批流程', ''), 
+            current_status,
+            approver_config
+        )
         all_nodes = completed_nodes + pending_nodes
         
         # 如果没有审批流程，根据状态创建简单节点

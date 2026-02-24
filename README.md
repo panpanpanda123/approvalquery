@@ -28,35 +28,30 @@ python3 parse_excel.py
 
 ### 更新数据
 
-#### 方法1：Windows一键更新（推荐）
+#### 方法1：简易更新（推荐）⭐
 
-**简易版（最简单）：**
 1. 把新Excel改名为 `线上建店审批.xlsx`
-2. 放到 `简易更新.bat` 同一目录
-3. 双击运行
+2. 双击 `简易更新.bat`
 
-**完整版（灵活）：**
-1. 把新Excel放到 `一键更新数据.bat` 同一目录
-2. 双击运行，输入文件名
-
-**首次使用需安装：**
-- [Python](https://www.python.org/downloads/)
-- [Git for Windows](https://git-scm.com/download/win)
-
-**SSH密钥登录：** 查看 `SSH密钥配置.md`
-
-#### 方法2：服务器端更新
+#### 方法2：GitHub同步
 
 ```bash
-# 上传Excel到服务器
-scp 新审批数据.xlsx root@服务器IP:/var/www/approval-viewer/approvalquery/
+# 本地
+git add .
+git commit -m "更新"
+git push
 
-# SSH登录服务器
-ssh root@服务器IP
-
-# 运行更新脚本
+# 服务器
+ssh root@139.224.200.133
 cd /var/www/approval-viewer/approvalquery
-bash daily_update.sh 新审批数据.xlsx
+bash 服务器一键更新.sh
+```
+
+#### 方法3：完整部署
+
+```bash
+# 一键完成所有操作
+双击 一键部署到服务器.bat
 ```
 
 ## 📁 文件说明
@@ -67,13 +62,16 @@ bash daily_update.sh 新审批数据.xlsx
 - `approval_data.json` - 生成的JSON数据
 - `线上建店审批.xlsx` - 源Excel文件
 
+### 配置管理
+- `approver_config.json` - 审批人员配置
+- `manage_approvers.py` - 审批人员管理工具
+
 ### 脚本工具
-- `简易更新.bat` - Windows简易更新（固定文件名）⭐推荐
-- `一键更新数据.bat` - Windows灵活更新（任意文件名）
-- `检测并配置nginx.sh` - 智能检测并配置nginx多项目
-- `daily_update.sh` - 服务器端数据更新脚本
-- `修复数据加载.sh` - 数据加载问题修复
-- `服务器部署.sh` - 快速部署脚本
+- `简易更新.bat` - 更新Excel数据 ⭐推荐
+- `一键部署到服务器.bat` - 完整部署
+- `服务器一键更新.sh` - 服务器端更新
+- `一键更新数据.bat` - 灵活更新
+- `快速提交.bat` - 快速Git提交
 
 ### 配置文件
 - `requirements.txt` - Python依赖
@@ -143,11 +141,16 @@ sudo chmod 644 *.json *.html
 
 **智能识别：** 脚本会自动检测Excel格式并使用对应的解析逻辑。
 
+## 🔧 审批人员管理
+
+修改审批人员：编辑 `approver_config.json` 或运行 `python manage_approvers.py`
+
+修改后必须重新生成数据：`python parse_excel.py`
+
 ## 🔄 更新日志
 
-- 2026-01-31: 初始版本，支持审批进度可视化
-- 支持多项目nginx配置管理
-- 添加Windows一键更新工具
+- 2026-02-24: 财务审批-1更新为李婕，新增审批人员配置管理
+- 2026-01-31: 初始版本
 
 ## 📞 技术支持
 
