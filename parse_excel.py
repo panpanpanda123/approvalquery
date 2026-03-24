@@ -129,25 +129,25 @@ def parse_approval_flow(flow_text, status):
 
     for line in str(flow_text).split(';'):
         line = line.strip()
-        if not line or '已同意' not in line:
+        # 已同意 或 已转审 都算完成审批
+        if not line or not any(op in line for op in ['已同意', '已转审']):
             continue
 
         # 跳过抄送和排除角色
         if any(ex in line for ex in EXCLUDE_KEYWORDS):
             continue
 
-        # 提取人名和时间
-        match = re.search(r'已同意\s*\|\s*(.+?)\s+已同意\s+(\d{1,2}/\d{1,2}\s+\d{1,2}:\d{2})', line)
+        # 提取操作类型、人名和时间（兼容已同意/已转审）
+        match = re.search(r'(已同意|已转审)\s*\|\s*(.+?)\s+(?:已同意|已转审)\s+(\d{1,2}/\d{1,2}\s+\d{1,2}:\d{2})', line)
         if not match:
-            # 尝试没有时间的格式
-            match = re.search(r'已同意\s*\|\s*(.+?)\s+已同意', line)
+            match = re.search(r'(已同意|已转审)\s*\|\s*(.+?)\s+(?:已同意|已转审)', line)
             if not match:
                 continue
-            name = match.group(1).strip()
+            name = match.group(2).strip()
             time_val = ''
         else:
-            name = match.group(1).strip()
-            time_val = match.group(2).strip()
+            name = match.group(2).strip()
+            time_val = match.group(3).strip()
 
         # 跳过排除角色
         if any(ex in name for ex in EXCLUDE_KEYWORDS):
