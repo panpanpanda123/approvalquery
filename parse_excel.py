@@ -31,109 +31,169 @@ def detect_excel_format(df):
         # 默认尝试审批格式
         return 'approval'
 
-def load_approver_config():
-    """
-    从配置文件加载审批人员配置
-    如果配置文件不存在，使用默认配置
-    """
-    config_file = 'approver_config.json'
-    
-    # 默认配置
-    default_config = {
-        '财务部-1': {'names': ['李婕'], 'label': '财务审批-1'},
-        '财务部-2': {'names': ['谢珍珍', '杨文慧'], 'label': '财务审批-2'},
-        '装修审核': {'names': ['施工监理-范钟欣', '范钟欣'], 'label': '装修审核'},
-        '培训部': {'names': ['王伟清'], 'label': '培训审批'},
-        '视频监控': {'names': ['刘崇宇'], 'label': '视频监控'},
-        '线下运营': {'names': ['蔡文佳'], 'label': '线下运营'},
-        '信息收集': {'names': ['线下堂食助理-婷婷', '婷婷'], 'label': '信息收集'},
-        '督导部': {'names': ['单玮'], 'label': '督导审批'},
-        '最终审批': {'names': ['苏磊'], 'label': '最终审批'}
-    }
-    
-    # 尝试加载配置文件
-    if os.path.exists(config_file):
-        try:
-            with open(config_file, 'r', encoding='utf-8') as f:
-                config_data = json.load(f)
-                config = {}
-                for key, value in config_data.get('审批节点配置', {}).items():
-                    config[key] = {
-                        'names': value['names'],
-                        'label': value['label']
-                    }
-                print(f'✅ 已加载审批人员配置: {config_file}')
-                return config
-        except Exception as e:
-            print(f'⚠️  配置文件加载失败，使用默认配置: {e}')
-    
-    return default_config
+# 审批节点定义：按角色关键词识别，不依赖具体人名
+# 顺序即为审批流程顺序
+APPROVAL_NODES = [
+    {
+        'key': '财务审批-1',
+        'label': '财务审批',
+        # 第一个出现的财务角色（无特定职位关键词，靠顺序判断）
+        'keywords': [],
+        'role_type': 'finance_1',  # 特殊处理：流程中第一个财务
+    },
+    {
+        'key': '财务审批-2',
+        'label': '财务复核',
+        'keywords': [],
+        'role_type': 'finance_2',  # 特殊处理：流程中第二个财务
+    },
+    {
+        'key': '装修审核',
+        'label': '装修审核',
+        'keywords': ['施工监理', '装修'],
+        'role_type': 'keyword',
+    },
+    {
+        'key': '培训审批',
+        'label': '培训审批',
+        'keywords': ['培训', '商学院', '王伟清'],
+        'role_type': 'keyword',
+    },
+    {
+        'key': '视频监控',
+        'label': '视频监控',
+        'keywords': ['视频', '监控', '刘崇宇'],
+        'role_type': 'keyword',
+    },
+    {
+        'key': '线下运营',
+        'label': '线下运营',
+        'keywords': ['线下运营'],
+        'role_type': 'keyword',
+    },
+    {
+        'key': '信息收集',
+        'label': '信息收集',
+        'keywords': ['堂食助理', '线上助理'],
+        'role_type': 'keyword',
+    },
+    {
+        'key': '督导审批',
+        'label': '督导审批',
+        'keywords': ['督导部', '督导'],
+        'role_type': 'keyword',
+    },
+    {
+        'key': '最终审批',
+        'label': '最终审批',
+        # 最终审批通常是流程最后一个"已同意"且不属于其他角色的人
+        'keywords': ['苏磊'],
+        'role_type': 'final',
+    },
+]
 
-def parse_approval_flow(flow_text, status, approver_config=None):
+# 明确排除的角色（抄送、助理等不算审批节点）
+EXCLUDE_KEYWORDS = ['已抄送', '督导服务号', '谢芳', '卢家豪', '周幂', '翁嘉隆', '黄琪艳', '王京海', '鹿世鸣']
+
+
+def classify_approver(name):
     """
-    解析审批流程文本，提取关键审批节点
+    根据角色关键词判断审批人属于哪个节点
+    返回节点key，或None（不属于任何关键节点）
     """
-    if pd.isna(flow_text):
+    for node in APPROVAL_NODES:
+        if node['role_type'] in ('finance_1', 'finance_2'):
+            continue  # 财务节点单独处理
+        for kw in node['keywords']:
+            if kw in name:
+                return node['key']
+    return None
+
+
+def parse_approval_flow(flow_text, status):
+    """
+    解析审批流程文本，按角色关键词识别节点，不依赖具体人名。
+    财务审批按出现顺序识别（第1、2个财务角色）。
+    """
+    if pd.isna(flow_text) or not str(flow_text).strip():
         return [], []
-    
-    # 如果没有传入配置，则加载配置
-    if approver_config is None:
-        approver_config = load_approver_config()
-    
-    # 初始化审批节点
-    key_approvers = {}
-    for key, config in approver_config.items():
-        key_approvers[key] = {
-            'names': config['names'],
-            'label': config['label'],
-            'completed': False,
-            'time': None
-        }
-    
-    lines = str(flow_text).split('\n')
-    
-    # 解析审批流程
-    for line in lines:
+
+    # 初始化节点状态
+    node_status = {node['key']: {'completed': False, 'time': None, 'approver': ''} for node in APPROVAL_NODES}
+
+    # 按顺序解析每一行
+    finance_count = 0  # 记录已出现的财务审批次数
+    known_role_keywords = []
+    for node in APPROVAL_NODES:
+        known_role_keywords.extend(node['keywords'])
+
+    for line in str(flow_text).split(';'):
         line = line.strip()
-        if not line:
+        if not line or '已同意' not in line:
             continue
-        
-        if '已同意' not in line and '审批中' not in line:
+
+        # 跳过抄送和排除角色
+        if any(ex in line for ex in EXCLUDE_KEYWORDS):
             continue
-            
-        for key, info in key_approvers.items():
-            for name in info['names']:
-                if name in line and '已同意' in line:
-                    info['completed'] = True
-                    time_match = re.search(r'(\d{1,2}/\d{1,2}\s+\d{1,2}:\d{2})', line)
-                    if time_match:
-                        info['time'] = time_match.group(1)
-                    break
-    
-    # 构建节点列表
+
+        # 提取人名和时间
+        match = re.search(r'已同意\s*\|\s*(.+?)\s+已同意\s+(\d{1,2}/\d{1,2}\s+\d{1,2}:\d{2})', line)
+        if not match:
+            # 尝试没有时间的格式
+            match = re.search(r'已同意\s*\|\s*(.+?)\s+已同意', line)
+            if not match:
+                continue
+            name = match.group(1).strip()
+            time_val = ''
+        else:
+            name = match.group(1).strip()
+            time_val = match.group(2).strip()
+
+        # 跳过排除角色
+        if any(ex in name for ex in EXCLUDE_KEYWORDS):
+            continue
+
+        # 先尝试关键词匹配
+        matched_key = classify_approver(name)
+
+        if matched_key:
+            node_status[matched_key]['completed'] = True
+            node_status[matched_key]['time'] = time_val
+            node_status[matched_key]['approver'] = name
+        else:
+            # 没有匹配到关键词 → 判断是否是财务角色
+            # 财务角色特征：不含任何已知角色关键词，且不在排除列表
+            is_known = any(kw in name for kw in known_role_keywords)
+            if not is_known:
+                finance_count += 1
+                if finance_count == 1:
+                    node_status['财务审批-1']['completed'] = True
+                    node_status['财务审批-1']['time'] = time_val
+                    node_status['财务审批-1']['approver'] = name
+                elif finance_count == 2:
+                    node_status['财务审批-2']['completed'] = True
+                    node_status['财务审批-2']['time'] = time_val
+                    node_status['财务审批-2']['approver'] = name
+
+    # 构建有序节点列表
     completed_nodes = []
     pending_nodes = []
-    
-    node_order = [
-        '财务部-1', '财务部-2', '装修审核', '培训部', 
-        '视频监控', '线下运营', '信息收集', '督导部', '最终审批'
-    ]
-    
-    for key in node_order:
-        info = key_approvers[key]
-        node = {
+
+    for node in APPROVAL_NODES:
+        key = node['key']
+        s = node_status[key]
+        entry = {
             'key': key,
-            'label': info['label'],
-            'approver': ' / '.join(info['names']),
-            'completed': info['completed'],
-            'time': info['time']
+            'label': node['label'],
+            'approver': s['approver'],
+            'completed': s['completed'],
+            'time': s['time'],
         }
-        
-        if info['completed']:
-            completed_nodes.append(node)
+        if s['completed']:
+            completed_nodes.append(entry)
         else:
-            pending_nodes.append(node)
-    
+            pending_nodes.append(entry)
+
     return completed_nodes, pending_nodes
 
 def clean_value(value):
@@ -149,9 +209,6 @@ def clean_value(value):
 
 def parse_approval_format(df):
     """解析审批格式的Excel"""
-    # 预加载审批人员配置（只加载一次）
-    approver_config = load_approver_config()
-    
     stores = []
     approved_count = 0
     rejected_count = 0
@@ -163,11 +220,10 @@ def parse_approval_format(df):
         if pd.isna(current_status):
             current_status = ''
         
-        # 解析审批流程（传入配置）
+        # 解析审批流程
         completed_nodes, pending_nodes = parse_approval_flow(
-            row.get('审批流程', ''), 
-            current_status,
-            approver_config
+            row.get('审批流程', ''),
+            current_status
         )
         all_nodes = completed_nodes + pending_nodes
         
@@ -250,20 +306,15 @@ def parse_approval_format(df):
 
 def parse_progress_format(df):
     """解析进度格式的Excel"""
-    # 预加载审批人员配置（只加载一次）
-    approver_config = load_approver_config()
-    
     stores = []
     approved_count = 0
     in_progress_count = 0
     
     for idx, row in df.iterrows():
-        # 从建店单和资料包状态判断进度
         jiandian_status = str(row.get('建店单', '')).strip()
         ziliao_status = str(row.get('资料包', '')).strip()
         approval_status = row.get('当前审批状态', '')
         
-        # 判断状态
         if pd.notna(approval_status) and approval_status:
             current_status = str(approval_status)
         elif jiandian_status == '已提交' and ziliao_status == '已收集':
@@ -273,11 +324,10 @@ def parse_progress_format(df):
         else:
             current_status = '准备中'
         
-        # 解析审批流程（如果有，传入配置）
+        # 解析审批流程
         completed_nodes, pending_nodes = parse_approval_flow(
-            row.get('审批流程', ''), 
-            current_status,
-            approver_config
+            row.get('审批流程', ''),
+            current_status
         )
         all_nodes = completed_nodes + pending_nodes
         
